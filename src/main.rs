@@ -103,7 +103,7 @@ fn Home() -> Element {
     let mut watchdog = use_signal(|| false);
 
     // File type counts
-    let file_counts = use_memo(move || {
+    let entry_counters = use_memo(move || {
         let mut pending = 0;
         let mut completed = 0;
         let mut skipped = 0;
@@ -149,14 +149,14 @@ fn Home() -> Element {
                 is_progress_active(),
                 is_progress_loop_running
             );
-            if is_progress_active() {
+            if is_progress_active() && !is_progress_loop_running {
                 let progress_state = progress_state.clone();
                 let mut progress_display = progress_display.clone();
                 let progress_state = progress_state.clone();
 
                 spawn(async move {
                     println!("Starting progress loop");
-                    let mut interval = tokio::time::interval(Duration::from_millis(100));
+                    let mut interval = tokio::time::interval(Duration::from_millis(250));
                     {
                         progress_state.lock().unwrap().is_progress_loop_running = true;
                     }
@@ -171,7 +171,12 @@ fn Home() -> Element {
 
                         if !is_progress_active() {
                             println!("Breaking progress loop");
-                            progress_state.lock().unwrap().is_progress_loop_running = false;
+                            {
+                                let mut state = progress_state.try_lock().unwrap();
+                                state.is_progress_loop_running = false;
+                                state.current = 0;
+                                state.total = 0;
+                            }
                             break;
                         }
                     }
@@ -186,7 +191,7 @@ fn Home() -> Element {
             is_progress_active.set(true);
             let start = Instant::now();
 
-            // Add Pending Entrie to the Queue
+            // Add Pending Entries to the Queue
             match task::spawn_blocking(move || {
                 let new_entries = Vec::<QueueEntry>::new();
                 for _ in 1..=1000 {
@@ -207,7 +212,7 @@ fn Home() -> Element {
 
             println!("Loaded Pending Entries in {:?}", start.elapsed());
 
-            // Process pending files
+            // Process pending entries
             // Reset progress
             {
                 let mut state = progress_state.lock().unwrap();
@@ -235,22 +240,23 @@ fn Home() -> Element {
                         let mut state = progress_state.lock().unwrap();
                         state.increment();
                     }
-                    thread::sleep(Duration::from_millis(100));
+                    thread::sleep(Duration::from_millis(50));
                 });
 
                 println!("Processed {} in {:?}", queue.len(), start.elapsed());
             })
             .await;
-
             is_progress_active.set(false);
         });
     };
 
-    let (pending, completed, skipped) = *file_counts.read();
+    let (pending, completed, skipped) = *entry_counters.read();
     let progress = progress_display.read();
 
     rsx! {
-        div { class: "p-4 space-y-4",
+        div { class: "p-4 pt-10 space-y-4",
+        div {
+            class: "flex gap-4",
             // Add pending entries button
             label {
                 class: "inline-block px-4 py-2 bg-blue-500 text-white rounded cursor-pointer hover:bg-blue-600 transition-colors",
@@ -262,25 +268,7 @@ fn Home() -> Element {
                 id: "file-upload",
                 onclick: add_pending_entries,
             }
-
-            // Progress indicators
-            if is_progress_active() {
-                div { class: "space-y-2",
-                    div { class: "text-sm font-medium", "Scanning files..." }
-                    div { class: "w-full bg-gray-200 rounded-full h-2",
-                        div {
-                            class: "bg-blue-600 h-2 rounded-full transition-all duration-300",
-                            style: "width: {progress.fraction() * 100.0}%",
-                        }
-                    }
-                    div { class: "text-sm text-gray-600",
-                        "Processed {progress.current} of {progress.total} files"
-                    }
-                }
-            },
             // Start/Stop Watchdog
-        div { class: "p-4 space-y-4",
-            // Add pending entries button
             label {
                 class: "inline-block px-4 py-2 bg-blue-500 text-white rounded cursor-pointer hover:bg-blue-600 transition-colors",
                 for: "watchdog_btm",
@@ -291,8 +279,25 @@ fn Home() -> Element {
                 id: "watchdog_btm",
                 onclick: move |_| watchdog.toggle(),
             }
-        },
-            // File statistics
+
+
+        }
+            // Progress indicators
+            if is_progress_active() {
+                div { class: "space-y-2",
+                    div { class: "text-sm font-medium", "Processing entries..." }
+                    div { class: "w-full bg-gray-200 rounded-full h-2",
+                        div {
+                            class: "bg-blue-600 h-2 rounded-full transition-all duration-300",
+                            style: "width: {progress.fraction() * 100.0}%",
+                        }
+                    }
+                    div { class: "text-sm text-gray-600",
+                        "Processed {progress.current} of {progress.total}"
+                    }
+                }
+            },
+            // Statistics
             div { class: "grid grid-cols-4 gap-4 text-sm",
                 div { class: "p-3 bg-gray-50 rounded",
                     div { class: "font-medium", "Total" }

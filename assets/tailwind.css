@@ -198,6 +198,9 @@
       max-width: 96rem;
     }
   }
+  .flex {
+    display: flex;
+  }
   .grid {
     display: grid;
   }
@@ -277,6 +280,9 @@
   }
   .py-2 {
     padding-block: calc(var(--spacing) * 2);
+  }
+  .pt-10 {
+    padding-top: calc(var(--spacing) * 10);
   }
   .text-sm {
     font-size: var(--text-sm);
