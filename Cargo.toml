@@ -1,0 +1,23 @@
+[package]
+name = "dioxus-queue-example"
+version = "0.1.0"
+authors = ["Thomas G. <31779479+tgourgon@users.noreply.github.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+dioxus = { version = "0.7.1", features = ["router"] }
+rayon = "1.11"
+rayon-progress = "1.0.0"
+dioxus-tabular = "0.3.0"
+uuid = { version = "1.0", features = ["v4", "serde"] } # "serde" feature enables serialization/deserialization
+rand = "0.9.2"
+
+
+[features]
+default = ["desktop"]
+desktop = ["dioxus/desktop"]
+
+
