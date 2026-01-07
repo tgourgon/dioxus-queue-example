@@ -186,6 +186,7 @@ fn Home() -> Element {
     }
 
     let add_pending_entries = move |_| {
+        let progress_state_final_reset = progress_state.clone();
         let progress_state = progress_state.clone();
         spawn(async move {
             is_progress_active.set(true);
@@ -219,33 +220,51 @@ fn Home() -> Element {
                 *state = ProgressState::new(queue.len());
             }
 
+            let (tx, mut rx) = tokio::sync::mpsc::channel(100);
             let start = Instant::now();
-            let _ = task::spawn_blocking(move || {
-                queue.write().par_iter_mut().for_each(|entry| {
-                    let is_skipped = rand::rng().random_bool(0.15);
-                    match entry {
-                        QueueEntry::Pending(_) if is_skipped => {
-                            let e = QueueEntry::Skipped(SkippedEntry { id: Uuid::new_v4() });
-                            *entry = e;
-                        }
-                        QueueEntry::Pending(_) if !is_skipped => {
-                            let e = QueueEntry::Completed(CompletedEntry { id: Uuid::new_v4() });
-                            *entry = e;
-                        }
+            let handle = task::spawn_blocking(move || {
+                let entries: Vec<(usize, QueueEntry)> =
+                    queue.read().iter().cloned().enumerate().collect();
 
-                        _ => (),
+                entries.par_iter().for_each(|entry_tuple| {
+                    let tx = tx.clone();
+                    let is_skipped = rand::rng().random_bool(0.15);
+                    let res = match entry_tuple {
+                        (idx, QueueEntry::Pending(_)) if is_skipped => (
+                            *idx,
+                            QueueEntry::Skipped(SkippedEntry { id: Uuid::new_v4() }),
+                        ),
+                        (idx, QueueEntry::Pending(_)) if !is_skipped => (
+                            *idx,
+                            QueueEntry::Completed(CompletedEntry { id: Uuid::new_v4() }),
+                        ),
+                        (idx, ent) => (*idx, ent.clone()),
                     };
+                    let _ = tx.blocking_send(res);
+                    thread::sleep(Duration::from_millis(20));
+                });
+            });
+
+            tokio::spawn(async move {
+                while let Some(msg) = rx.recv().await {
+                    let (idx, entry) = msg;
+                    queue.write()[idx] = entry;
+
                     // Update progress
                     {
                         let mut state = progress_state.lock().unwrap();
                         state.increment();
                     }
-                    thread::sleep(Duration::from_millis(50));
-                });
+                }
+            });
 
-                println!("Processed {} in {:?}", queue.len(), start.elapsed());
-            })
-            .await;
+            handle.await.unwrap();
+            println!("Processed {} in {:?}", queue.len(), start.elapsed());
+            // Reset progress
+            {
+                let mut state = progress_state_final_reset.lock().unwrap();
+                *state = ProgressState::new(queue.len());
+            }
             is_progress_active.set(false);
         });
     };
